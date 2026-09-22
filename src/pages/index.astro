@@ -1,0 +1,459 @@
+---
+// La URL del backend viene de la variable de entorno PUBLIC_BACKEND_URL
+// que se configura en el .env o al hacer npm run build
+const backendUrl = import.meta.env.PUBLIC_BACKEND_URL ?? 'http://localhost:8080';
+---
+
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Guestbook distribuido – frontend Astro conectado a un backend Rust." />
+    <title>ASSW Guestbook</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <style>
+      /* ── Reset & tokens ────────────────────────────────────────── */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+      :root {
+        --bg:        #0d0f14;
+        --surface:   #151821;
+        --surface2:  #1c2030;
+        --border:    #2a2f45;
+        --accent:    #7c6af7;
+        --accent2:   #56cfb2;
+        --text:      #e8eaf0;
+        --muted:     #6b7290;
+        --danger:    #f06060;
+        --radius:    14px;
+        --shadow:    0 4px 30px rgba(0,0,0,.45);
+        --font:      'Inter', system-ui, sans-serif;
+      }
+
+      body {
+        font-family: var(--font);
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 2rem 1rem 4rem;
+      }
+
+      /* ── Header ────────────────────────────────────────────────── */
+      header {
+        width: 100%;
+        max-width: 700px;
+        margin-bottom: 2.5rem;
+        text-align: center;
+      }
+      header h1 {
+        font-size: clamp(1.8rem, 4vw, 2.8rem);
+        font-weight: 700;
+        background: linear-gradient(135deg, var(--accent) 0%, var(--accent2) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: .5rem;
+      }
+      header p {
+        color: var(--muted);
+        font-size: .95rem;
+      }
+
+      /* ── Status bar ─────────────────────────────────────────────── */
+      #status-bar {
+        width: 100%;
+        max-width: 700px;
+        display: flex;
+        align-items: center;
+        gap: .6rem;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: .7rem 1rem;
+        margin-bottom: 2rem;
+        font-size: .82rem;
+        color: var(--muted);
+      }
+      .dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: var(--muted);
+        flex-shrink: 0;
+        transition: background .3s;
+      }
+      .dot.online  { background: var(--accent2); box-shadow: 0 0 6px var(--accent2); }
+      .dot.offline { background: var(--danger);  box-shadow: 0 0 6px var(--danger); }
+
+      /* ── Form ───────────────────────────────────────────────────── */
+      form {
+        width: 100%;
+        max-width: 700px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        margin-bottom: 2rem;
+        box-shadow: var(--shadow);
+      }
+      form h2 { font-size: 1rem; font-weight: 600; color: var(--text); }
+
+      .field-row {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: .8rem;
+      }
+      @media (max-width: 480px) { .field-row { grid-template-columns: 1fr; } }
+
+      input, textarea {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: .65rem .9rem;
+        font-family: var(--font);
+        font-size: .9rem;
+        color: var(--text);
+        outline: none;
+        transition: border-color .2s;
+        width: 100%;
+      }
+      input:focus, textarea:focus { border-color: var(--accent); }
+      textarea { resize: vertical; min-height: 80px; }
+
+      button[type="submit"] {
+        align-self: flex-end;
+        background: linear-gradient(135deg, var(--accent), var(--accent2));
+        border: none;
+        border-radius: 8px;
+        padding: .65rem 1.6rem;
+        font-family: var(--font);
+        font-size: .9rem;
+        font-weight: 600;
+        color: #fff;
+        cursor: pointer;
+        transition: opacity .2s, transform .15s;
+      }
+      button[type="submit"]:hover  { opacity: .9; transform: translateY(-1px); }
+      button[type="submit"]:active { transform: translateY(0); }
+      button[type="submit"]:disabled { opacity: .5; cursor: not-allowed; }
+
+      /* ── Error banner ───────────────────────────────────────────── */
+      #form-error {
+        display: none;
+        background: rgba(240,96,96,.12);
+        border: 1px solid var(--danger);
+        border-radius: 8px;
+        padding: .5rem .8rem;
+        font-size: .83rem;
+        color: var(--danger);
+      }
+
+      /* ── Messages list ──────────────────────────────────────────── */
+      #messages-section {
+        width: 100%;
+        max-width: 700px;
+      }
+      #messages-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+      #messages-header h2 { font-size: 1rem; font-weight: 600; }
+      #msg-count {
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: .15rem .7rem;
+        font-size: .78rem;
+        color: var(--muted);
+      }
+
+      #messages-list {
+        display: flex;
+        flex-direction: column;
+        gap: .9rem;
+      }
+
+      .message-card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1rem 1.2rem;
+        display: flex;
+        flex-direction: column;
+        gap: .4rem;
+        animation: fadeIn .3s ease;
+        transition: border-color .2s;
+      }
+      .message-card:hover { border-color: var(--accent); }
+
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+
+      .msg-meta {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: .5rem;
+      }
+      .msg-author {
+        font-weight: 600;
+        font-size: .9rem;
+        color: var(--accent);
+      }
+      .msg-time {
+        font-size: .75rem;
+        color: var(--muted);
+      }
+      .msg-text {
+        font-size: .92rem;
+        line-height: 1.5;
+        color: var(--text);
+        word-break: break-word;
+      }
+      .msg-delete {
+        background: none;
+        border: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: .8rem;
+        padding: .1rem .4rem;
+        border-radius: 4px;
+        transition: color .15s, background .15s;
+        flex-shrink: 0;
+      }
+      .msg-delete:hover { color: var(--danger); background: rgba(240,96,96,.1); }
+
+      /* ── Empty / loading states ─────────────────────────────────── */
+      .state-msg {
+        text-align: center;
+        color: var(--muted);
+        padding: 2.5rem 0;
+        font-size: .9rem;
+      }
+      .spinner {
+        display: inline-block;
+        width: 18px; height: 18px;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin .7s linear infinite;
+        vertical-align: middle;
+        margin-right: .4rem;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* ── Footer ─────────────────────────────────────────────────── */
+      footer {
+        margin-top: 3rem;
+        color: var(--muted);
+        font-size: .78rem;
+        text-align: center;
+      }
+      footer span { color: var(--accent); }
+    </style>
+  </head>
+  <body>
+
+    <header>
+      <h1>📋 ASSW Guestbook</h1>
+      <p>Frontend en <strong>Astro</strong> · Backend en <strong>Rust (Actix-web)</strong></p>
+    </header>
+
+    <!-- Backend status bar -->
+    <div id="status-bar">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">Conectando con el backend…</span>
+    </div>
+
+    <!-- New message form -->
+    <form id="message-form">
+      <h2>✍️ Nuevo mensaje</h2>
+      <div class="field-row">
+        <input
+          id="input-author"
+          type="text"
+          placeholder="Tu nombre"
+          maxlength="50"
+          required
+          autocomplete="off"
+        />
+        <input
+          id="input-text"
+          type="text"
+          placeholder="Escribe tu mensaje…"
+          maxlength="500"
+          required
+          autocomplete="off"
+        />
+      </div>
+      <div id="form-error"></div>
+      <button type="submit" id="submit-btn">Enviar</button>
+    </form>
+
+    <!-- Messages list -->
+    <section id="messages-section">
+      <div id="messages-header">
+        <h2>💬 Mensajes</h2>
+        <span id="msg-count">–</span>
+      </div>
+      <div id="messages-list">
+        <p class="state-msg"><span class="spinner"></span> Cargando mensajes…</p>
+      </div>
+    </section>
+
+    <footer>
+      Conectado a <span id="backend-url-display"></span>
+    </footer>
+
+    <script define:vars={{ backendUrl }}>
+      const API = backendUrl.replace(/\/$/, '');
+      document.getElementById('backend-url-display').textContent = API;
+
+      // ── Utilities ──────────────────────────────────────────────────
+      function formatDate(iso) {
+        try {
+          return new Intl.DateTimeFormat('es-ES', {
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+          }).format(new Date(iso));
+        } catch {
+          return iso;
+        }
+      }
+
+      function escapeHtml(str) {
+        return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                  .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      }
+
+      // ── Status bar ─────────────────────────────────────────────────
+      async function checkHealth() {
+        const dot  = document.getElementById('status-dot');
+        const text = document.getElementById('status-text');
+        try {
+          const res = await fetch(`${API}/api/health`);
+          if (res.ok) {
+            dot.className  = 'dot online';
+            text.textContent = `Backend online · ${API}`;
+          } else {
+            throw new Error('non-200');
+          }
+        } catch {
+          dot.className  = 'dot offline';
+          text.textContent = `Backend no disponible en ${API}`;
+        }
+      }
+
+      // ── Render messages ────────────────────────────────────────────
+      function renderMessages(messages) {
+        const list = document.getElementById('messages-list');
+        const count = document.getElementById('msg-count');
+        count.textContent = `${messages.length} mensaje${messages.length !== 1 ? 's' : ''}`;
+
+        if (messages.length === 0) {
+          list.innerHTML = '<p class="state-msg">Aún no hay mensajes. ¡Sé el primero! 🎉</p>';
+          return;
+        }
+
+        // Newest first
+        const sorted = [...messages].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        list.innerHTML = sorted.map(msg => `
+          <div class="message-card" data-id="${escapeHtml(msg.id)}">
+            <div class="msg-meta">
+              <span class="msg-author">@${escapeHtml(msg.author)}</span>
+              <span style="display:flex;align-items:center;gap:.5rem">
+                <span class="msg-time">${formatDate(msg.timestamp)}</span>
+                <button class="msg-delete" title="Borrar mensaje" data-id="${escapeHtml(msg.id)}">✕</button>
+              </span>
+            </div>
+            <p class="msg-text">${escapeHtml(msg.text)}</p>
+          </div>
+        `).join('');
+
+        // Attach delete listeners
+        list.querySelectorAll('.msg-delete').forEach(btn => {
+          btn.addEventListener('click', () => deleteMessage(btn.dataset.id));
+        });
+      }
+
+      // ── Fetch messages ─────────────────────────────────────────────
+      async function loadMessages() {
+        try {
+          const res  = await fetch(`${API}/api/messages`);
+          const data = await res.json();
+          renderMessages(data.messages ?? []);
+        } catch (err) {
+          document.getElementById('messages-list').innerHTML =
+            '<p class="state-msg">⚠️ No se pudieron cargar los mensajes. ¿Está el backend en marcha?</p>';
+        }
+      }
+
+      // ── Create message ─────────────────────────────────────────────
+      const form      = document.getElementById('message-form');
+      const errBanner = document.getElementById('form-error');
+      const submitBtn = document.getElementById('submit-btn');
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        errBanner.style.display = 'none';
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Enviando…';
+
+        const author = document.getElementById('input-author').value.trim();
+        const text   = document.getElementById('input-text').value.trim();
+
+        try {
+          const res = await fetch(`${API}/api/messages`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ author, text }),
+          });
+
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error ?? 'Error desconocido');
+          }
+
+          form.reset();
+          await loadMessages();
+        } catch (err) {
+          errBanner.textContent = `❌ ${err.message}`;
+          errBanner.style.display = 'block';
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Enviar';
+        }
+      });
+
+      // ── Delete message ─────────────────────────────────────────────
+      async function deleteMessage(id) {
+        try {
+          await fetch(`${API}/api/messages/${id}`, { method: 'DELETE' });
+          await loadMessages();
+        } catch {
+          // silently ignore
+        }
+      }
+
+      // ── Init ───────────────────────────────────────────────────────
+      checkHealth();
+      loadMessages();
+
+      // Poll every 30 s to keep messages fresh
+      setInterval(loadMessages, 30_000);
+    </script>
+  </body>
+</html>
