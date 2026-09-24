@@ -453,7 +453,7 @@ const backendUrl = import.meta.env.PUBLIC_BACKEND_URL ?? 'http://localhost:8080'
       loadMessages();
 
       // Poll every 30 s to keep messages fresh
-      setInterval(loadMessages, 30_000);
+      setInterval(loadMessages, 5_000);
     </script>
   </body>
 </html>
